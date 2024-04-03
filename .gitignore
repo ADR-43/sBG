@@ -1,0 +1,11 @@
+NUTS/
+venv/
+3d_posterior.png
+convergence.mp4
+highend_customers.py
+pystan_attempt.py
+hierarchical_model.stan
+__pycache__
+scripts/
+writeup/
+src/
