@@ -1,6 +1,7 @@
-import numpy as np
-import pickle
 import math
+import pickle
+
+import numpy as np
 import torch
 from torch.distributions import Beta
 from torch.distributions.multivariate_normal import MultivariateNormal
@@ -8,8 +9,8 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 class WelfordCovariance:
     def __init__(self, size):
-        self.mean = torch.zeros(size)
-        self.M2 = torch.zeros((size, size))
+        self.mean = torch.zeros(size, dtype=torch.float64)
+        self.M2 = torch.zeros((size, size), dtype=torch.float64)
         self.count = 0
 
     def update(self, x):
@@ -20,8 +21,23 @@ class WelfordCovariance:
 
     def covariance(self):
         if self.count < 2:
-            return torch.full((self.mean.size(0), self.mean.size(0)), float('nan'))
+            return torch.full((self.mean.size(0), self.mean.size(0)), float("nan"))
         return self.M2 / (self.count - 1)
+
+
+def generate_windows(n):
+    windows = [(75, 100)]
+
+    while True:
+        last_tuple = windows[-1]
+        next_lower = last_tuple[1]
+        next_upper = next_lower + 2 * (last_tuple[1] - last_tuple[0])
+        if next_upper <= n - 50:
+            windows.append((next_lower, next_upper))
+        else:
+            windows[-1] = (windows[-1][0], n - 50)
+            break
+    return windows
 
 
 def regularize_cov(matrix, num_samples, adjustment_factor=1e-3):
@@ -85,10 +101,16 @@ def U(log_q, thetas, y):
     c_thetas = thetas[num_u:]
     c_y = y[-1]
 
-    log_posterior = - (- 1000 * (torch.lgamma(alpha) + torch.lgamma(b) - torch.lgamma(alpha + b)) + alpha * torch.sum(
-        torch.log(u_thetas)) + (b - 2) * torch.sum(torch.log(1 - u_thetas)) + torch.dot(u_y, torch.log(1 - u_thetas))
-                     + (alpha - 1) * torch.sum(torch.log(c_thetas)) + (b + c_y - 1) * torch.sum(
-                torch.log(1 - c_thetas)) + torch.log(alpha) + torch.log(b))
+    log_posterior = -(
+        -1000 * (torch.lgamma(alpha) + torch.lgamma(b) - torch.lgamma(alpha + b))
+        + alpha * torch.sum(torch.log(u_thetas))
+        + (b - 2) * torch.sum(torch.log(1 - u_thetas))
+        + torch.dot(u_y, torch.log(1 - u_thetas))
+        + (alpha - 1) * torch.sum(torch.log(c_thetas))
+        + (b + c_y - 1) * torch.sum(torch.log(1 - c_thetas))
+        + torch.log(alpha)
+        + torch.log(b)
+    )
 
     # potential = 1000 * (torch.lgamma(alpha) + torch.lgamma(beta) - torch.lgamma(alpha + beta)) - alpha * torch.sum(
     #     torch.log(torch.maximum(thetas, min_theta))) - beta * torch.sum(
@@ -107,7 +129,6 @@ def leapfrog(q, p, thetas, epsilon, M_inv, y):
     # Compute gradient of the potential energy U with respect to q
     U_val = U(q, thetas, y)
     U_val.backward()
-
 
     # Update momentum by half step
     p = p - epsilon * q.grad / 2
@@ -129,14 +150,15 @@ def leapfrog(q, p, thetas, epsilon, M_inv, y):
     # Final momentum update by half step
     p = p - epsilon * q.grad / 2
 
-
     q.grad.zero_()
 
     # Return the updated position and momentum
     return q.detach(), p.detach()
 
 
-def build_tree(q, p, thetas, direction, depth, epsilon, q_0, p_0, M_inv, y, delta_max=1000):
+def build_tree(
+    q, p, thetas, direction, depth, epsilon, q_0, p_0, M_inv, y, delta_max=1000
+):
     if depth == 0:
         q_prime, p_prime = leapfrog(q, p, thetas, direction * epsilon, M_inv, y)
         H_0 = H(q_0, thetas, p_0, M_inv, y)
@@ -145,14 +167,76 @@ def build_tree(q, p, thetas, direction, depth, epsilon, q_0, p_0, M_inv, y, delt
         alpha_prime = torch.min(torch.tensor(1.0), torch.exp(H_0 - H_prime)).item()
         n_alpha_prime = 1
         log_sum_tree = H_0 - H_prime
-        return q_prime, p_prime, q_prime, p_prime, q_prime, s_prime, alpha_prime, n_alpha_prime, log_sum_tree
+        return (
+            q_prime,
+            p_prime,
+            q_prime,
+            p_prime,
+            q_prime,
+            s_prime,
+            alpha_prime,
+            n_alpha_prime,
+            log_sum_tree,
+        )
     else:
-        q_minus, p_minus, q_plus, p_plus, q_prime, s_prime, alpha_prime, n_alpha_prime, log_sum_tree = build_tree(q, p, thetas, direction, depth - 1, epsilon, q_0, p_0, M_inv, y)
+        (
+            q_minus,
+            p_minus,
+            q_plus,
+            p_plus,
+            q_prime,
+            s_prime,
+            alpha_prime,
+            n_alpha_prime,
+            log_sum_tree,
+        ) = build_tree(q, p, thetas, direction, depth - 1, epsilon, q_0, p_0, M_inv, y)
         if s_prime:
             if direction == -1:
-                q_minus, p_minus, _, _, q_double_prime, s_double_prime, alpha_double_prime, n_alpha_double_prime, log_sum_tree_prime = build_tree(q_minus, p_minus, thetas, direction, depth - 1, epsilon, q_0, p_0, M_inv, y)
+                (
+                    q_minus,
+                    p_minus,
+                    _,
+                    _,
+                    q_double_prime,
+                    s_double_prime,
+                    alpha_double_prime,
+                    n_alpha_double_prime,
+                    log_sum_tree_prime,
+                ) = build_tree(
+                    q_minus,
+                    p_minus,
+                    thetas,
+                    direction,
+                    depth - 1,
+                    epsilon,
+                    q_0,
+                    p_0,
+                    M_inv,
+                    y,
+                )
             else:
-                _, _, q_plus, p_plus, q_double_prime, s_double_prime, alpha_double_prime, n_alpha_double_prime, log_sum_tree_prime = build_tree(q_plus, p_plus, thetas, direction, depth - 1, epsilon, q_0, p_0, M_inv, y)
+                (
+                    _,
+                    _,
+                    q_plus,
+                    p_plus,
+                    q_double_prime,
+                    s_double_prime,
+                    alpha_double_prime,
+                    n_alpha_double_prime,
+                    log_sum_tree_prime,
+                ) = build_tree(
+                    q_plus,
+                    p_plus,
+                    thetas,
+                    direction,
+                    depth - 1,
+                    epsilon,
+                    q_0,
+                    p_0,
+                    M_inv,
+                    y,
+                )
             if np.isnan(log_sum_tree_prime):
                 log_sum_tree_prime = 0.0
             log_sum_total = np.logaddexp(log_sum_tree, log_sum_tree_prime)
@@ -167,26 +251,43 @@ def build_tree(q, p, thetas, direction, depth, epsilon, q_0, p_0, M_inv, y, delt
             log_sum_tree = log_sum_total
             alpha_prime += alpha_double_prime
             n_alpha_prime += n_alpha_double_prime
-            s_prime = bool(s_double_prime and ((q_plus - q_minus) @ p_minus).item() >= 0 and (
-                    (q_plus - q_minus) @ p_plus).item() >= 0)
-        return q_minus, p_minus, q_plus, p_plus, q_prime, s_prime, alpha_prime, n_alpha_prime, log_sum_tree
+            s_prime = bool(
+                s_double_prime
+                and ((q_plus - q_minus) @ p_minus).item() >= 0
+                and ((q_plus - q_minus) @ p_plus).item() >= 0
+            )
+        return (
+            q_minus,
+            p_minus,
+            q_plus,
+            p_plus,
+            q_prime,
+            s_prime,
+            alpha_prime,
+            n_alpha_prime,
+            log_sum_tree,
+        )
 
 
 def NUTS(data, alpha, beta, num_samples, num_adapt):
     q = torch.tensor([alpha, beta], requires_grad=False, dtype=torch.float64)
 
     y = np.repeat(np.arange(1, len(data) + 1), data)
-    y_uncensored = torch.tensor(y[:(np.sum(data) - data[-1])], dtype=torch.float64)  # assuming y is a list or array
-    y_censored = torch.tensor(y[(np.sum(data) - data[-1]):], dtype=torch.float64)  # assuming y is a list or array
+    y_uncensored = torch.tensor(
+        y[: (np.sum(data) - data[-1])], dtype=torch.float64
+    )  # assuming y is a list or array
+    y_censored = torch.tensor(
+        y[(np.sum(data) - data[-1]) :], dtype=torch.float64
+    )  # assuming y is a list or array
     y = torch.from_numpy(y).double()
 
     alpha_samples = np.zeros((1, num_samples))
     beta_samples = np.zeros((1, num_samples))
     theta_samples = np.zeros((np.sum(data), num_samples))
 
-    #TODO Implement findEpsilon which involves setteng initial thetas that will be unused othwise.
+    # TODO Implement findEpsilon which involves setteng initial thetas that will be unused othwise.
 
-    epsilon = .2
+    epsilon = 0.05
     delta = 0.82
     mu = math.log(10.0 * epsilon)
     epsilon_bar = 1
@@ -197,25 +298,34 @@ def NUTS(data, alpha, beta, num_samples, num_adapt):
 
     M = torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float64)
     M_inv = torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float64)
-    # windows = [(275, 300), (300, 350), (350, 450), (450, 850), (850, 1050), (1050, 1850), (1850, 3500)]
-    windows = [(75, 100), (100, 150), (150, 250), (250, 450), (450, 950)]
+    windows = generate_windows(num_adapt)
     current_window_index = 0  # Keep track of the current window index
     welford_cov = WelfordCovariance(q.shape[0])
 
     for i in range(num_samples):
         if i % 100 == 0:
-            print('sample iteration number ' + str(i))
-            print("alpha: " + str(torch.exp(q[0]).item()) + " beta: " + str(torch.exp(q[1]).item()))
+            print("sample iteration number " + str(i))
+            print(
+                "alpha: "
+                + str(torch.exp(q[0]).item())
+                + " beta: "
+                + str(torch.exp(q[1]).item())
+            )
             print(epsilon)
-        
-        
-        theta_samples[:(np.sum(data) - data[-1]), i] = conditional_posterior_theta_uncensored(q[0], q[1],
-                                                                        y_uncensored).squeeze()
-        theta_samples[(np.sum(data) - data[-1]):, i] = conditional_posterior_theta_censored(q[0], q[1],
-                                                                      y_censored).squeeze()
 
-        momentum = MultivariateNormal(torch.zeros(2, dtype=torch.float64), covariance_matrix=M)
-        thetas = torch.tensor(theta_samples[:, i], requires_grad=False, dtype=torch.float64)
+        theta_samples[: (np.sum(data) - data[-1]), i] = (
+            conditional_posterior_theta_uncensored(q[0], q[1], y_uncensored).squeeze()
+        )
+        theta_samples[(np.sum(data) - data[-1]) :, i] = (
+            conditional_posterior_theta_censored(q[0], q[1], y_censored).squeeze()
+        )
+
+        momentum = MultivariateNormal(
+            torch.zeros(2, dtype=torch.float64), covariance_matrix=M
+        )
+        thetas = torch.tensor(
+            theta_samples[:, i], requires_grad=False, dtype=torch.float64
+        )
 
         p = momentum.sample()
         q_minus, p_minus = q.clone(), p.clone()
@@ -228,13 +338,42 @@ def NUTS(data, alpha, beta, num_samples, num_adapt):
         while s and depth < 10:
             v = 1 if torch.randint(0, 2, (1,)).item() == 1 else -1
             if v == -1:
-                q_minus, p_minus, _, _, q_prime, s_prime, alpha, n_alpha, log_sum_tree_prime = build_tree(q_minus, p_minus, thetas, v, depth, epsilon, q_0, p_0, M_inv, y)
+                (
+                    q_minus,
+                    p_minus,
+                    _,
+                    _,
+                    q_prime,
+                    s_prime,
+                    alpha,
+                    n_alpha,
+                    log_sum_tree_prime,
+                ) = build_tree(
+                    q_minus, p_minus, thetas, v, depth, epsilon, q_0, p_0, M_inv, y
+                )
             else:
-                _, _, q_plus, p_plus, q_prime, s_prime, alpha, n_alpha, log_sum_tree_prime = build_tree(q_plus, p_plus, thetas, v, depth, epsilon, q_0, p_0, M_inv, y)
-            if np.isnan(log_sum_tree) or np.isnan(log_sum_tree_prime) or np.isinf(log_sum_tree) or np.isinf(
-                    log_sum_tree_prime):
+                (
+                    _,
+                    _,
+                    q_plus,
+                    p_plus,
+                    q_prime,
+                    s_prime,
+                    alpha,
+                    n_alpha,
+                    log_sum_tree_prime,
+                ) = build_tree(
+                    q_plus, p_plus, thetas, v, depth, epsilon, q_0, p_0, M_inv, y
+                )
+            if (
+                np.isnan(log_sum_tree)
+                or np.isnan(log_sum_tree_prime)
+                or np.isinf(log_sum_tree)
+                or np.isinf(log_sum_tree_prime)
+            ):
                 print(
-                    f"Encountered invalid value: log_sum_tree = {log_sum_tree}, log_sum_tree_prime = {log_sum_tree_prime}")
+                    f"Encountered invalid value: log_sum_tree = {log_sum_tree}, log_sum_tree_prime = {log_sum_tree_prime}"
+                )
 
             log_sum_total = np.logaddexp(log_sum_tree, log_sum_tree_prime)
             if s_prime:
@@ -245,24 +384,38 @@ def NUTS(data, alpha, beta, num_samples, num_adapt):
                     if np.random.uniform() < acceptance:
                         q = q_prime
             log_sum_tree = log_sum_total
-            s = bool(s_prime and ((q_plus - q_minus) @ p_minus).item() >= 0 and ((q_plus - q_minus) @ p_plus).item() >= 0)
+            s = bool(
+                s_prime
+                and ((q_plus - q_minus) @ p_minus).item() >= 0
+                and ((q_plus - q_minus) @ p_plus).item() >= 0
+            )
             depth = depth + 1
         if i <= num_adapt:
             omega = 1 / float((i + 1 + t_0))
             H_bar = (1 - omega) * H_bar + omega * (delta - alpha / float(n_alpha))
             epsilon = math.exp(mu - (math.sqrt(i + 1) / gamma) * H_bar)
-            epsilon_bar = math.exp(((i + 1) ** (-kappa) * math.log(epsilon)) + ((1 - (i + 1) ** (-kappa)) * math.log(epsilon_bar)))
+            epsilon_bar = math.exp(
+                ((i + 1) ** (-kappa) * math.log(epsilon))
+                + ((1 - (i + 1) ** (-kappa)) * math.log(epsilon_bar))
+            )
         else:
             epsilon = epsilon_bar
 
-        if current_window_index < len(windows) and windows[current_window_index][0] <= i < windows[current_window_index][1]:
+        if (
+            current_window_index < len(windows)
+            and windows[current_window_index][0] <= i < windows[current_window_index][1]
+        ):
             welford_cov.update(q.clone().detach().cpu())
         if i == windows[current_window_index][1] - 1:
             cov_matrix = welford_cov.covariance()
-            num_samples = windows[current_window_index][1] - windows[current_window_index][0]
+            num_samples = (
+                windows[current_window_index][1] - windows[current_window_index][0]
+            )
             M_inv = regularize_cov(cov_matrix, num_samples)
             M = torch.inverse(M_inv)
-            print(f"Window {windows[current_window_index][0]}-{windows[current_window_index][1]} M_inv and M:")
+            print(
+                f"Window {windows[current_window_index][0]}-{windows[current_window_index][1]} M_inv and M:"
+            )
             print(M_inv[:2, :2])
             print(M[:2, :2])
             welford_cov = WelfordCovariance(q.shape[0])
@@ -283,13 +436,13 @@ def NUTS(data, alpha, beta, num_samples, num_adapt):
 def sBG(data, num_samples=2000, num_adapt=1000, chains=4):
     results = []
     for i in range(chains):
-        alpha = math.log(np.random.uniform(0.25, 10))
-        beta = math.log(np.random.uniform(.25, 10))
+        alpha = math.log(np.random.uniform(0.1, 1.75))
+        beta = math.log(np.random.uniform(0.1, 8))
 
         chain = NUTS(data, alpha, beta, num_samples, num_adapt)
-        with open(f'NUTS/chain{i+1}_high_HMC.pickle', 'wb') as file:
+        with open(f"NUTS/chain{i+1}_high_HMC.pickle", "wb") as file:
             pickle.dump(chain, file)
-        
+
         results.append(chain)
 
     return results
@@ -307,5 +460,6 @@ def main():
 
     results = sBG(data, num_samples, num_adapt, chains)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

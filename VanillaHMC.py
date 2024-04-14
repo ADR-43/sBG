@@ -1,17 +1,13 @@
 import math
 import pickle
-import random
 import time
 
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
-from matplotlib.animation import FuncAnimation
-from scipy.special import digamma, polygamma, gammaln
 from torch.distributions import Beta
 import arviz as az
 from statsmodels.graphics.tsaplots import plot_acf
-import cProfile
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 import MCMC

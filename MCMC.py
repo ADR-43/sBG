@@ -2,10 +2,7 @@ import math
 import pickle
 import random
 import matplotlib.pyplot as plt
-import pandas as pd
 import matplotlib.animation as animation
-import arviz as az
-from datetime import datetime
 
 import numpy as np
 from scipy.stats import beta, norm, uniform, gaussian_kde, geom, lognorm
@@ -73,18 +70,18 @@ def calculate_mode(samples):
 
 def plot_chains(samples, parameter_name=None, colors=None, begin=None, end=None, y_lim=None):
     for idx, chain in enumerate(samples):
-        plt.plot(chain[parameter_name][begin:end], color=colors[idx], linewidth=.5,
+        plt.plot(chain[parameter_name][begin:end], linewidth=.5,
                  label=f'Chain {idx + 1}')
-    plt.title(f'{parameter_name.capitalize()} Samples of Four Chains')
-    plt.xlabel("Sample Index")
-    plt.ylabel("Alpha Value")
+    plt.title(f'{parameter_name.capitalize()} Samples', fontsize=18)
+    plt.xlabel("Sample Index", fontsize=14)
+    plt.ylabel(f'{parameter_name.capitalize()} Value', fontsize=14)
     plt.ylim(y_lim)
     plt.legend()
     plt.show()
 
 
 def animate_chains(samples, x_lim=(0, 3.5), y_lim=(0, 15), num_frames=2000, interval=20, fig_size=(10, 6),
-                   dpi=100, colors=None, save=False, name=None):
+                   dpi=300, colors=None, save=False, name=None):
     # Plot setup
     fig, ax = plt.subplots(figsize=fig_size, dpi=dpi)
     ax.set_xlim(x_lim)
@@ -93,7 +90,7 @@ def animate_chains(samples, x_lim=(0, 3.5), y_lim=(0, 15), num_frames=2000, inte
     lines = []
 
     for idx, sample in enumerate(samples):
-        line = ax.plot(sample['alpha'], sample['beta'], '.', color=colors[idx], markersize=2, linewidth=1,
+        line = ax.plot(sample['alpha'], sample['beta'], '--x', markersize=3, linewidth=0.5,
                        label=f'Chain {idx + 1}')[0]
         lines.append(line)
 
@@ -114,7 +111,7 @@ def animate_chains(samples, x_lim=(0, 3.5), y_lim=(0, 15), num_frames=2000, inte
     if save:
         if not isinstance(name, str):
             raise TypeError("The 'name' argument must be a string.")
-        anim.save('convergence.mp4', writer='ffmpeg', fps=30, dpi=dpi)
+        anim.save(name + '.mp4', writer='ffmpeg', fps=30, dpi=dpi)
 
     plt.show()
 
