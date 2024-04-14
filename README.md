@@ -8,7 +8,8 @@ I originally took a Bayesian statistics class during undergrad to learn about MC
 
 This project is still a work-in-progress. I work on it in my free time and started it as a way to teach myself the inner workings of HMC algorithms. It allowed me to deeply understand their derivations and restrictions. Here are some ideas I want to eventually implement.
 
-- Generalized stopping criterion for building the trajectories using binary trees.- An HMC algorithm generalized to Riemannian manifolds.
+- Generalized stopping criterion for building the trajectories using binary trees.
+- An HMC algorithm generalized to Riemannian manifolds.
 - More visualizations.
 
 
