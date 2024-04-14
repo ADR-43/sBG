@@ -48,10 +48,13 @@ python gen.py <number_of_samples> <number_of_chains> <sample_boolean>
 ```
 The number of samples are the total number of samples for each chain. Commonly, there is a warm-up period for each chain to allow the algorithm to learn local (optimal step size) and global (sample parameter covariance) online. This value is set to 2000 within gen.py and can be changed if needed. The `number_of_chains` value sets the number of different chains one wants the algorithm to run. The `sample_boolean` value allows the user to set the program to create new samples (`True`) or only run the visualizations (`False`).
 
+## File Descriptions
 
-
-
-
+MCMC.py -- Implements Random-Walk Metroplis-Hastings as well as contains some utilities for visualizations. I am hoping to eventually refactor this file so that the utilities are in their own file.
+NUTS(multinomial and metric).py -- A file where I test new ideas/implementations. It may be broken at any time, but I thought it would be interesting to include.
+VanillaHMC.py -- Implementation of Hybrid Monte Carlo. Not generalized for any input as I have hand tuned the model parameters for the specific data. The autocorrelation is quite low; therefore, there is either currently a bug in my implementation or an excellent job has been done for parameter tuning.
+gen_multinomial_metric.py -- HMC implementation generalized for the sBG. Includes multinomial sampling instead of the original slice sampling as well as an an adapted Euclidean metric for each chain.
+gen.py -- Visualizations for the generalized HMC implentation for the sBG.
 
 
 
