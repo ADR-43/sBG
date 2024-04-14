@@ -4,6 +4,14 @@
 ## Overview
 This repository contains the full Bayesian interpretation of the shifted beta-geometric (sBG) model for analyzing customer churn. This model employs a hierarchical Bayesian approach to estimate customer churn propensity and survival curves as opposed to the approxiamted version implemented using empirical Bayes (Fader and Hardie, 2007).
 
+I originally took a Bayesian statistics class during undergrad to learn about MCMC methods which I had read about in the appendix of my stochastic processes textbook.
+
+This project is still a work-in-progress. I work on it in my free time and started it as a way to teach myself the inner workings of HMC algorithms. It allowed me to deeply understand their derivations and restrictions. Here are some ideas I want to eventually implement.
+
+- Generalized stopping criterion for building the trajectories using binary trees.- An HMC algorithm generalized to Riemannian manifolds.
+- More visualizations.
+
+
 ## Introduction
 The sBG model addresses the shortcomings of traditional retention models by acknowledging the variability in customer behavior across populations (cohorts). By modeling customer tenure using the shifted geometric distribution and incorporating Bayesian hierarchical modeling, we gain deeper insights into customer retention and attrition dynamics.
 
