@@ -12,6 +12,8 @@ This project is still a work-in-progress. I work on it in my free time and start
 - An HMC algorithm generalized to Riemannian manifolds.
 - More visualizations.
 
+[Here](sBG-MCMC.pdf) is the current write up. As the rest of the site is, it is still incomplete. 
+
 
 ## Introduction
 The sBG model addresses the shortcomings of traditional retention models by acknowledging the variability in customer behavior across populations (cohorts). By modeling customer tenure using the shifted geometric distribution and incorporating Bayesian hierarchical modeling, we gain deeper insights into customer retention and attrition dynamics.
