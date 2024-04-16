@@ -54,7 +54,7 @@ The number of samples are the total number of samples for each chain. Commonly, 
 - **NUTS(multinomial and metric).py** -- A file where I test new ideas/implementations. It may be broken at any time, but I thought it would be interesting to include.
 - **VanillaHMC.py** -- Implementation of Hybrid Monte Carlo. Not generalized for any input as I have hand tuned the model parameters for the specific data. The autocorrelation is quite low; therefore, there is either currently a bug in my implementation or an excellent job has been done for parameter tuning.
 - **gen_multinomial_metric.py** -- HMC implementation generalized for the sBG. Includes multinomial sampling instead of the original slice sampling as well as an an adapted Euclidean metric for each chain.
-- **gen.py** -- Visualizations for the generalized HMC implentation for the sBG.
+- **gen.py** -- Visualizations for the generalized HMC implementation for the sBG.
 
 
 
