@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 from matplotlib import pyplot as plt
+from torch.distributions.multivariate_normal import MultivariateNormal
 from statsmodels.graphics.tsaplots import plot_acf
 import arviz as az
 
@@ -14,8 +15,8 @@ import MCMC
 
 class WelfordCovariance:
     def __init__(self, size):
-        self.mean = torch.zeros(size)
-        self.M2 = torch.zeros((size, size))
+        self.mean = torch.zeros(size, dtype=torch.float64)
+        self.M2 = torch.zeros((size, size), dtype=torch.float64)
         self.count = 0
 
     def update(self, x):
@@ -26,7 +27,7 @@ class WelfordCovariance:
 
     def covariance(self):
         if self.count < 2:
-            return torch.full((self.mean.size(0), self.mean.size(0)), float('nan'))
+            return torch.full((self.mean.size(0), self.mean.size(0)), float("nan"))
         return self.M2 / (self.count - 1)
 
 
@@ -45,13 +46,14 @@ def regularize_cov(matrix, num_samples, adjustment_factor=1e-3):
     """
     # Compute the amount to add to diagonal elements
     n = num_samples
-    matrix = (n / (n + 5.0)) * matrix + adjustment_factor * (5.0 / (n + 5.0)) * torch.eye(matrix.shape[0])
+    identity = torch.eye(matrix.shape[0], dtype=torch.float64)
+    matrix = (n / (n + 5.0)) * matrix + adjustment_factor * (5.0 / (n + 5.0)) * identity
     return matrix
 
 
 def sample_p(M_inv):
-    u = torch.randn(M_inv.shape[0])
-    L = torch.linalg.cholesky(M_inv)
+    u = torch.randn(M_inv.shape[0], dtype=torch.float64)
+    L = torch.linalg.cholesky(M_inv).double()
     return torch.cholesky_solve(u.unsqueeze(1), L).squeeze()
 
 
@@ -83,27 +85,57 @@ def find_reasonable_e(log_q, y, M_inv):
         ratio = H_0 - H_prime
     return epsilon / 2
 
+def posterior(log_q, y):
+    """
+    Compute the potential energy U for given alpha, beta, and theta values.
 
-def posterior(q, y):
-    alpha, b = torch.exp(q[:2]).unbind()
-    thetas = 1 / (1 + torch.exp(-q[2:]))
-    u_thetas = thetas[:509]
-    u_y = y[:509]
+    Parameters:
+    alpha (float): Current value of alpha.
+    beta (float): Current value of beta.
+    theta (array): Array of theta values.
 
-    c_thetas = thetas[509:]
+    Returns:
+    float: The potential energy U.
+    """
+    # min_theta = torch.tensor([1e-5], dtype=torch.float32)
+    # alpha, beta = torch.exp(log_q).unbind()
+
+    k_val = 4
+
+    alpha, b = torch.exp(log_q[:2]).unbind()
+    thetas = 1 / (1 + torch.exp(k_val * -log_q[2:]))
+
+    num_u = (y == torch.max(y)).nonzero()[0].item()
+
+    u_thetas = thetas[:num_u]
+    u_y = y[:num_u]
+
+    c_thetas = thetas[num_u:]
     c_y = y[-1]
 
-    log_posterior = (- 1000 * (torch.lgamma(alpha) + torch.lgamma(b) - torch.lgamma(alpha + b)) + alpha * torch.sum(
-        torch.log(u_thetas)) + (b - 2) * torch.sum(torch.log(1 - u_thetas)) + torch.dot(u_y, torch.log(1 - u_thetas))
-                     + (alpha - 1) * torch.sum(torch.log(c_thetas)) + (b + c_y - 1) * torch.sum(torch.log(1 - c_thetas)))
+    log_posterior = (
+        -1000 * (torch.lgamma(alpha) + torch.lgamma(b) - torch.lgamma(alpha + b))
+        + alpha * torch.sum(torch.log(u_thetas))
+        + (b - 2) * torch.sum(torch.log(1 - u_thetas))
+        + torch.dot(u_y, torch.log(1 - u_thetas))
+        + (alpha - 1) * torch.sum(torch.log(c_thetas))
+        + (b + c_y - 1) * torch.sum(torch.log(1 - c_thetas))
+        + torch.log(alpha)
+        + torch.log(b)
+        + 1000 * torch.log(torch.tensor(k_val))
+        + torch.sum(torch.log(thetas))
+        + torch.sum(torch.log(1-thetas))
+    )
 
-    jacobian = torch.log(alpha) + torch.log(b) + torch.sum(torch.log(thetas) + torch.log((1 - thetas)))
+    # potential = 1000 * (torch.lgamma(alpha) + torch.lgamma(beta) - torch.lgamma(alpha + beta)) - alpha * torch.sum(
+    #     torch.log(torch.maximum(thetas, min_theta))) - beta * torch.sum(
+    #     torch.log(torch.maximum((1 - thetas), min_theta))) - torch.log(alpha) - torch.log(beta)
 
-    return log_posterior + jacobian
+    return log_posterior
 
 
 def H(q, p, y, M_inv):
-    # M_inv = M_inv.float()
+    M_inv = M_inv.double()
     result = torch.matmul(M_inv, p)
     U = - posterior(q, y)
     K = 0.5 * torch.dot(p, result)
@@ -113,7 +145,7 @@ def H(q, p, y, M_inv):
 def leapfrog(q, p, y, epsilon, M_inv):
     # Ensure q is a leaf tensor
     q = q.clone().detach().requires_grad_(True)
-    # M_inv = M_inv.float()
+    M_inv = M_inv.double()
 
     # Compute gradient of the potential energy U with respect to q
     U = -posterior(q, y)
@@ -184,6 +216,7 @@ def build_tree(q, p, y, direction, depth, epsilon, q_0, p_0, M_inv, delta_max=10
 
 def generate_sample(q, y, epsilon, M_inv):
     p = sample_p(M_inv)
+    print(p)
     q_minus, p_minus = q, p
     q_plus, p_plus = q, p
     q_0, p_0 = q, p
@@ -213,25 +246,26 @@ def generate_sample(q, y, epsilon, M_inv):
 
 
 def NUTS(log_alpha, log_beta, num_samples, m_adapt=1000):
-    log_alpha = torch.tensor([log_alpha], dtype=torch.float32)  # Convert to tensor
-    log_beta = torch.tensor([log_beta], dtype=torch.float32)
+    log_alpha = torch.tensor([log_alpha], dtype=torch.float64)  # Convert to tensor
+    log_beta = torch.tensor([log_beta], dtype=torch.float64)
     # arr = np.array([369, 163, 86, 56, 37, 27, 21, 241])
     arr = np.array([131, 126, 90, 60, 42, 34, 26, 491])
     average_churn = arr[0].item() / 1000
-    logit_average_churn = average_churn / (1 - average_churn)
-    initial_thetas = torch.full((1000,), logit_average_churn, dtype=torch.float32)
+    logit_average_churn = math.log(average_churn / (1 - average_churn)) / 4
+    initial_thetas = torch.full((1000,), logit_average_churn, dtype=torch.float64)
+    print(initial_thetas)
     q = torch.cat((log_alpha, log_beta, initial_thetas), dim=0)
     print(q)
     q.requires_grad_(False)
     y = np.repeat(np.arange(1, len(arr) + 1), arr)
-    y = torch.from_numpy(y).float()
+    y = torch.from_numpy(y).double()
     alpha_samples = np.zeros((1, num_samples))
     beta_samples = np.zeros((1, num_samples))
     theta_samples = np.zeros((1000, num_samples))
 
-    M_inv = torch.eye(1002)
-    epsilon = find_reasonable_e(q, y, M_inv)
-    # epsilon = .03
+    M_inv = torch.eye(1002, dtype=torch.float64)
+    # epsilon = find_reasonable_e(q, y, M_inv)
+    epsilon = .0004
     delta = 0.8
     mu = math.log(.75 * epsilon)
     epsilon_bar = 1
@@ -248,7 +282,7 @@ def NUTS(log_alpha, log_beta, num_samples, m_adapt=1000):
 
         if i % 1 == 0:
             print('sample iteration number ' + str(i))
-            print("alpha: " + str(torch.exp(q[0]).item()) + " beta: " + str(torch.exp(q[1]).item()))
+            print("alpha: " + str(torch.exp(q[0]).item()) + " beta: " + str(torch.exp(q[1]).item()) + " theta: " + str(q[2].item()))
             print(epsilon)
         q, alpha, n_alpha = generate_sample(q, y, epsilon, M_inv)
         q = q.detach().requires_grad_(False)
@@ -281,7 +315,7 @@ def NUTS(log_alpha, log_beta, num_samples, m_adapt=1000):
 
         alpha_samples[0, i] = torch.exp(q[0]).item()
         beta_samples[0, i] = torch.exp(q[1]).item()
-        theta_samples[:, i] = 1 / (1 + torch.exp(-q[2:]))
+        theta_samples[:, i] = 1 / (1 + torch.exp(4 * -q[2:]))
 
     result = {
         "theta.samp": theta_samples,  # Replace theta_samp with your actual Python variable

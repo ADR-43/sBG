@@ -16,6 +16,7 @@ from statsmodels.graphics.tsaplots import plot_acf
 
 import MCMC
 from gen_multinomial_metric import sBG
+from proper_hmc import sBG as prop_sBG
 
 
 def survival(alpha, beta, t):
@@ -33,13 +34,13 @@ def main():
     bool_arg = bool(distutils.util.strtobool(sys.argv[3]))
 
     num_samples = int_arg
-    num_adapt = 2000
+    num_adapt = 1000
     end = num_samples - num_adapt
     num_chains = chains_arg
     sample = bool_arg
 
-    # data = np.array([369, 163, 86, 56, 37, 27, 21, 241])
-    data = np.array([131, 126, 90, 60, 42, 34, 26, 491])
+    data = np.array([369, 163, 86, 56, 37, 27, 21, 241])
+    # data = np.array([131, 126, 90, 60, 42, 34, 26, 491])
 
     # data = np.array([369, 163, 86, 56, 37, 27, 21, 18, 16, 13, 194])
     # data = np.array([131, 126, 90, 60, 42, 34, 26, 23, 23, 18, 427])
@@ -48,7 +49,8 @@ def main():
     # data = np.array([152, 103, 75, 58, 46, 38, 32, 27, 24, 21, 18, 16, 15, 13, 12, 11, 10, 9, 318])
 
     if sample:
-        chains = sBG(data, num_samples, num_adapt, num_chains)
+        # chains = sBG(data, num_samples, num_adapt, num_chains)
+        chains = prop_sBG(data, num_samples, num_adapt, num_chains)
     else:
         chains = []
         for i in range(1, num_chains + 1):
@@ -60,29 +62,39 @@ def main():
     samples = []
     samples_final = []
     for chain in chains:
-        sample = {"alpha": chain["alpha.samp"][0, :], "beta": chain["beta.samp"][0, :]}
+        sample = {"alpha": chain["alpha.samp"][0, :], "beta": chain["beta.samp"][0, :], "theta1": chain["theta.samp"][0, :], "theta1000": chain["theta.samp"][-1, :]}
         sample_final = {
             "alpha": chain["alpha.samp"][0, num_adapt:num_samples],
             "beta": chain["beta.samp"][0, num_adapt:num_samples],
+            "theta1": chain["theta.samp"][0, num_adapt:num_samples],
+            "theta1000": chain["theta.samp"][-1, num_adapt:num_samples],
         }
         samples.append(sample)
         samples_final.append(sample_final)
 
     # Warm-up removal and concatenation of parameter chains
-    final_params = {"alpha": np.array([]), "beta": np.array([])}
+    final_params = {"alpha": np.array([]), "beta": np.array([]), "theta1": np.array([]), "theta1000": np.array([])}
 
     for sample in samples:
         final_params["alpha"] = np.concatenate(
             (final_params["alpha"], sample["alpha"][num_adapt:num_samples])
         )
-        final_params["beta"] = np.concatenate(
+        final_params["beta"] = np.concatenate(  
             (final_params["beta"], sample["beta"][num_adapt:num_samples])
+        )
+        final_params["theta1"] = np.concatenate(  
+            (final_params["theta1"], sample["theta1"][num_adapt:num_samples])
+        )
+        final_params["theta1000"] = np.concatenate(  
+            (final_params["theta1000"], sample["theta1000"][num_adapt:num_samples])
         )
 
     print(len(final_params["alpha"]))
 
     alphas = final_params["alpha"]
     betas = final_params["beta"]
+    theta1s = final_params["theta1"]
+    theta1000s = final_params["theta1000"]
 
     # Plots an animation of chain sampling with and without warm-up samples
     MCMC.animate_chains(
@@ -133,23 +145,24 @@ def main():
     )
     fig, axs = plt.subplots(1, 2, figsize=(12, 6))
     # Plots the posterior beliefs of alpha and beta
-    az.plot_posterior(final_params["alpha"], ref_val=0.668, ax=axs[0])
+    az.plot_posterior(final_params["alpha"], ref_val=0.704, ax=axs[0])
     axs[0].set_title("Posterior Belief in Alpha (Action Parameter)", fontsize=18)
     axs[0].set_xlabel("Value of Alpha", fontsize=14)
     axs[0].set_ylabel("Density", fontsize=14)
     axs[0].set_xlim([0.5, 8.5])
 
-    az.plot_posterior(final_params["beta"], ref_val=3.802, ax=axs[1])
+    az.plot_posterior(final_params["beta"], ref_val=1.182, ax=axs[1])
     axs[1].set_title("Posterior Belief in Beta (Inaction Parameter)", fontsize=18)
     axs[1].set_xlabel("Value of Beta", fontsize=14)
     axs[1].set_ylabel("Density", fontsize=14)
-    axs[1].set_xlim([2, 10])
+    # axs[1].set_xlim([2, 10])
+    axs[1].set_xlim([0.5, 8.5])
 
     plt.tight_layout()
     plt.show()
 
     fig, ax = plt.subplots(2, 1, squeeze=True)
-    plot_acf(final_params["alpha"], lags=100, ax=ax[0])
+    plot_acf(final_params["alpha"], lags=999, ax=ax[0])
     plot_acf(final_params["beta"], lags=999, ax=ax[1])
     plt.show()
 
@@ -201,22 +214,27 @@ def main():
     data_dict = {
         "alpha": np.array([chain["alpha"] for chain in samples_final]),
         "beta": np.array([chain["beta"] for chain in samples_final]),
+        "theta1": np.array([chain["theta1"] for chain in samples_final]),
+        "theta1000": np.array([chain["theta1000"] for chain in samples_final]),
     }
 
     inference_data = az.from_dict(
         data_dict,
         coords={"chain": np.arange(num_chains), "draw": np.arange(num_samples)},
-        dims={"alpha": ["chain", "draw"], "beta": ["chain", "draw"]},
+        dims={"alpha": ["chain", "draw"], "beta": ["chain", "draw"], "theta1": ["chain", "draw"], "theta1000": ["chain", "draw"]},
     )
 
     ess_results = az.ess(inference_data)
     print("this is just standard ess: ", ess_results)
 
+    ess_results = az.ess(inference_data, method="tail")
+    print("this is the tail ess: ", ess_results)
+
     print(az.rhat(inference_data))
     print(az.hdi(inference_data, hdi_prob=0.95))
 
-    # data = np.array([369, 163, 86, 56, 37, 27, 21, 18, 16, 13, 11, 10, 173])
-    data = np.array([131, 126, 90, 60, 42, 34, 26, 23, 23, 18, 18, 15, 394])
+    data = np.array([369, 163, 86, 56, 37, 27, 21, 18, 16, 13, 11, 10, 173])
+    # data = np.array([131, 126, 90, 60, 42, 34, 26, 23, 23, 18, 18, 15, 394])
     alive = np.concatenate(([1000], (np.sum(data) - np.cumsum(data))))
     x1 = range(0, len(alive) - 1)
 
@@ -227,8 +245,8 @@ def main():
         for j, week in enumerate(weeks):  # Iterate over weeks
             survivals[j, i] = survival(alphas[i], betas[i], week + 1)
 
-    eb_alpha = 0.668
-    eb_beta = 3.802
+    eb_alpha = 0.704
+    eb_beta = 1.182
     eb_survival = np.zeros(16)
 
     for i, t in enumerate(weeks):
